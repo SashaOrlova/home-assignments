@@ -7,6 +7,7 @@ __all__ = [
 from typing import List, Optional, Tuple
 
 import numpy as np
+import cv2
 
 from corners import CornerStorage
 from data3d import CameraParameters, PointCloud, Pose
@@ -16,8 +17,48 @@ from _camtrack import (
     create_cli,
     calc_point_cloud_colors,
     to_opencv_camera_mat3x3,
-    view_mat3x4_to_pose
+    view_mat3x4_to_pose,
+    build_correspondences,
+    triangulate_correspondences,
+    TriangulationParameters,
+    rodrigues_and_translation_to_view_mat3x4,
+    pose_to_view_mat3x4
 )
+
+triang_params = TriangulationParameters(max_reprojection_error=1,
+                                        min_triangulation_angle_deg=0.12,
+                                        min_depth=0.07)
+
+
+def build_and_get_correspondences(corner_storage, intrinsic_mat, idx_1, mat_1, idx_2, mat_2):
+    correspondences = build_correspondences(corner_storage[idx_1], corner_storage[idx_2])
+    if len(correspondences.ids) == 0:
+        return [], []
+    points, ids, _ = triangulate_correspondences(correspondences,
+                                                 mat_1, mat_2,
+                                                 intrinsic_mat,
+                                                 triang_params)
+    return points, ids
+
+
+def solve_ransac(object_points, image_points, intrinsic_mat):
+    rv, rvec, tvec, inliers = cv2.solvePnPRansac(object_points, image_points, intrinsic_mat, None)
+    inliers_len = len(inliers)
+    if rv and inliers_len > 0:
+        return inliers_len, rodrigues_and_translation_to_view_mat3x4(rvec, tvec)
+    else:
+        return 0, []
+
+
+def update_frames(frames, corners, builder, tracked_mats, cur_frame, mat):
+    for frame in range(frames):
+        if frame == cur_frame or tracked_mats[frame] is None:
+            continue
+        points, ids = build_and_get_correspondences(corners, mat,
+                                                    frame, tracked_mats[frame],
+                                                    cur_frame, tracked_mats[cur_frame])
+        if len(ids) != 0:
+            builder.add_points(ids, points)
 
 
 def track_and_calc_colors(camera_parameters: CameraParameters,
@@ -34,20 +75,63 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
         camera_parameters,
         rgb_sequence[0].shape[0]
     )
+    points, ids = build_and_get_correspondences(corner_storage, intrinsic_mat,
+                                                known_view_1[0], pose_to_view_mat3x4(known_view_1[1]),
+                                                known_view_2[0], pose_to_view_mat3x4(known_view_2[1]))
+    if len(points) < 10:
+        print("Слишком маленькое число точек, проверьте параметры запуска")
+        exit(0)
 
-    # TODO: implement
-    view_mats, point_cloud_builder = [], PointCloudBuilder()
+    point_cloud_builder = PointCloudBuilder(ids, points)
+
+    total_frames = len(corner_storage)
+    tracked_mats = [None] * len(corner_storage)
+    tracked_mats[known_view_1[0]] = pose_to_view_mat3x4(known_view_1[1])
+    tracked_mats[known_view_2[0]] = pose_to_view_mat3x4(known_view_2[1])
+
+    counter = 0
+    last_counter = counter
+    while True:
+        for cur_frame, corners in enumerate(corner_storage):
+            if tracked_mats[cur_frame] is not None:
+                continue
+
+            _, comm1, comm2 = np.intersect1d(point_cloud_builder.ids.flatten(),
+                                             corners.ids.flatten(),
+                                             return_indices=True)
+            try:
+                inliers_len, mat = solve_ransac(point_cloud_builder.points[comm1], corners.points[comm2], intrinsic_mat)
+                print(f'Обработан {cur_frame} из {total_frames}')
+                if inliers_len > 0:
+                    tracked_mats[cur_frame] = mat
+                    counter += 1
+                else:
+                    continue
+            except:
+                print(f'Ошибка в {cur_frame} кадре')
+                continue
+
+            update_frames(total_frames, corner_storage, point_cloud_builder, tracked_mats, cur_frame, intrinsic_mat)
+
+        if last_counter == counter:
+            break
+        else:
+            last_counter = counter
+
+    tracked_mats = np.array([x for x in tracked_mats if x is not None])
+    if len(tracked_mats) == 0:
+        print("Ничего не найдено, повторите с другими начальными параметрами")
 
     calc_point_cloud_colors(
         point_cloud_builder,
         rgb_sequence,
-        view_mats,
+        tracked_mats,
         intrinsic_mat,
         corner_storage,
         5.0
     )
     point_cloud = point_cloud_builder.build_point_cloud()
-    poses = list(map(view_mat3x4_to_pose, view_mats))
+    poses = list(map(view_mat3x4_to_pose, tracked_mats))
     return poses, point_cloud
 
 
