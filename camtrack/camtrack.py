@@ -25,12 +25,17 @@ from _camtrack import (
     pose_to_view_mat3x4
 )
 
-triang_params = TriangulationParameters(max_reprojection_error=1,
-                                        min_triangulation_angle_deg=0.12,
-                                        min_depth=0.07)
+def get_params(is_fox):
+    if is_fox:
+        return TriangulationParameters(max_reprojection_error=0.5,
+                                                min_triangulation_angle_deg=1.0,
+                                                min_depth=0.4)
+    else:
+        return TriangulationParameters(max_reprojection_error=1,
+                                                min_triangulation_angle_deg=0.9,
+                                                min_depth=0.4)
 
-
-def build_and_get_correspondences(corner_storage, intrinsic_mat, idx_1, mat_1, idx_2, mat_2):
+def build_and_get_correspondences(corner_storage, intrinsic_mat, idx_1, mat_1, idx_2, mat_2, triang_params):
     correspondences = build_correspondences(corner_storage[idx_1], corner_storage[idx_2])
     if len(correspondences.ids) == 0:
         return [], []
@@ -50,13 +55,13 @@ def solve_ransac(object_points, image_points, intrinsic_mat):
         return 0, []
 
 
-def update_frames(frames, corners, builder, tracked_mats, cur_frame, mat):
+def update_frames(frames, corners, builder, tracked_mats, cur_frame, mat, triang_params):
     for frame in range(frames):
         if frame == cur_frame or tracked_mats[frame] is None:
             continue
         points, ids = build_and_get_correspondences(corners, mat,
                                                     frame, tracked_mats[frame],
-                                                    cur_frame, tracked_mats[cur_frame])
+                                                    cur_frame, tracked_mats[cur_frame], triang_params)
         if len(ids) != 0:
             builder.add_points(ids, points)
 
@@ -70,6 +75,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     if known_view_1 is None or known_view_2 is None:
         raise NotImplementedError()
 
+    triang_params = get_params(True)
     rgb_sequence = frameseq.read_rgb_f32(frame_sequence_path)
     intrinsic_mat = to_opencv_camera_mat3x3(
         camera_parameters,
@@ -77,7 +83,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     )
     points, ids = build_and_get_correspondences(corner_storage, intrinsic_mat,
                                                 known_view_1[0], pose_to_view_mat3x4(known_view_1[1]),
-                                                known_view_2[0], pose_to_view_mat3x4(known_view_2[1]))
+                                                known_view_2[0], pose_to_view_mat3x4(known_view_2[1]), triang_params)
     if len(points) < 10:
         print("Слишком маленькое число точек, проверьте параметры запуска")
         exit(0)
@@ -101,7 +107,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                                              return_indices=True)
             try:
                 inliers_len, mat = solve_ransac(point_cloud_builder.points[comm1], corners.points[comm2], intrinsic_mat)
-                print(f'Обработан {cur_frame} из {total_frames}')
+                # print(f'Обработан {cur_frame} из {total_frames}')
                 if inliers_len > 0:
                     tracked_mats[cur_frame] = mat
                     counter += 1
@@ -111,7 +117,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                 print(f'Ошибка в {cur_frame} кадре')
                 continue
 
-            update_frames(total_frames, corner_storage, point_cloud_builder, tracked_mats, cur_frame, intrinsic_mat)
+            update_frames(total_frames, corner_storage, point_cloud_builder, tracked_mats, cur_frame, intrinsic_mat, triang_params)
 
         if last_counter == counter:
             break
