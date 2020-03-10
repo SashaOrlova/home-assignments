@@ -38,31 +38,31 @@ class _CornerStorageBuilder:
         return StorageImpl(item[1] for item in sorted(self._corners.items()))
 
 
-def init_params(block_size, max_corners):
+def init_params(block_size, max_corners, is_fox):
     feature_params = dict(maxCorners=max_corners,
-                          qualityLevel=0.01,
-                          minDistance=block_size,
+                          qualityLevel=0.005,
+                          minDistance=10,
                           useHarrisDetector=False,
-                          blockSize=block_size)
-    lk_params = dict(winSize=(block_size, 15),
-                     maxLevel=2)
+                          blockSize=3)
+    lk_params = dict(winSize=(15, 15),
+                     maxLevel=3)
     return feature_params, lk_params
 
 
 def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
-    max_corners = 700
+    max_corners = 5000
     frame = list(map(lambda t: (np.array(t) * 255.0).astype(np.uint8), frame_sequence))
     image_0 = frame[0]
     block_size = int(len(image_0) / 50)
-    feature_params, lk_params = init_params(block_size, max_corners)
+    feature_params, lk_params = init_params(block_size, max_corners, True)
     corners = cv2.goodFeaturesToTrack(image_0, **feature_params).squeeze(axis=1)
     points_end = len(corners)
     ids = np.arange(points_end)
     sizes = np.full(points_end, 10)
     builder.set_corners_at_frame(0, FrameCorners(ids, corners, sizes))
 
-    for idx, image_1 in enumerate(frame[1:]):
+    for idx, image_1 in enumerate(frame[0:]):
         next, next_st, _ = cv2.calcOpticalFlowPyrLK(image_0, image_1, corners, None, **lk_params)
         mask = next_st.reshape(-1).astype(np.bool)
         ids, corners, sizes = ids[mask], next[mask], sizes[mask]
