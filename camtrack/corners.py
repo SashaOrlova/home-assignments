@@ -39,28 +39,19 @@ class _CornerStorageBuilder:
 
 
 def init_params(block_size, max_corners, is_fox):
-    if is_fox:
-        feature_params = dict(maxCorners=max_corners,
-                              qualityLevel=0.5,
-                              minDistance=block_size,
-                              useHarrisDetector=False,
-                              blockSize=block_size)
-        lk_params = dict(winSize=(block_size, 15),
-                         maxLevel=2)
-    else:
-        feature_params = dict(maxCorners=max_corners,
-                              qualityLevel=0.85,
-                              minDistance=block_size,
-                              useHarrisDetector=False,
-                              blockSize=block_size)
-        lk_params = dict(winSize=(block_size, 13),
-                         maxLevel=3)
+    feature_params = dict(maxCorners=max_corners,
+                          qualityLevel=0.005,
+                          minDistance=10,
+                          useHarrisDetector=False,
+                          blockSize=3)
+    lk_params = dict(winSize=(15, 15),
+                     maxLevel=3)
     return feature_params, lk_params
 
 
 def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
-    max_corners = 2000
+    max_corners = 5000
     frame = list(map(lambda t: (np.array(t) * 255.0).astype(np.uint8), frame_sequence))
     image_0 = frame[0]
     block_size = int(len(image_0) / 50)
