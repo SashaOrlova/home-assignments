@@ -27,9 +27,9 @@ from _camtrack import (
 
 
 def get_params():
-    return TriangulationParameters(max_reprojection_error=0.01,
-                                   min_triangulation_angle_deg=6,
-                                   min_depth=6)
+    return TriangulationParameters(max_reprojection_error=0.1,
+                                   min_triangulation_angle_deg=4,
+                                   min_depth=4)
 
 
 def build_and_get_correspondences(corner_storage, intrinsic_mat, idx_1, mat_1, idx_2, mat_2, triang_params):

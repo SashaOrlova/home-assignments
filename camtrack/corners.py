@@ -40,7 +40,7 @@ class _CornerStorageBuilder:
 
 def init_params(block_size, max_corners, is_fox):
     feature_params = dict(maxCorners=max_corners,
-                          qualityLevel=0.005,
+                          qualityLevel=0.001,
                           minDistance=10,
                           useHarrisDetector=False,
                           blockSize=3)
